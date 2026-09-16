@@ -1,0 +1,54 @@
+spring:
+  application:
+    name: authentication-service
+  datasource:
+    url: ${AUTH_DB_URL:jdbc:postgresql://localhost:5432/thartheeb_auth}
+    username: ${AUTH_DB_USERNAME:postgres}
+    password: ${AUTH_DB_PASSWORD:admin123}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+server:
+  port: 8081
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    display-request-duration: true
+    operations-sorter: method
+    tags-sorter: alpha
+
+thartheeb:
+  auth:
+    # Local defaults: environment variables override every value in deployed environments.
+    issuer: ${AUTH_ISSUER:http://localhost:8081}
+    access-token-ttl: PT10M
+    refresh-token-ttl: P30D
+    reset-token-ttl: PT15M
+    mfa-challenge-ttl: PT5M
+    maximum-attempts: 5
+    lock-duration: PT15M
+    # Valid Base64 for a 32-byte AES-256 key. Replace it outside local development.
+    field-encryption-key-base64: ${THARTHEEB_AUTH_FIELD_KEY:MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=}
+    service-clients:
+      operations-service: ${OPERATIONS_SERVICE_CLIENT_SECRET:local-operations-service-secret}
+      vendor-service: ${VENDOR_SERVICE_CLIENT_SECRET:local-vendor-service-secret}
+    service-token-ttl: PT1M
+    outbox-publish-delay: PT2S
+    signing-private-key-pem: ${AUTH_SIGNING_PRIVATE_KEY_PEM:}
+    signing-key-id: ${AUTH_SIGNING_KEY_ID:thartheeb-auth-1}
+    # Generates a temporary signing key for local runs only. Set false and provide
+    # AUTH_SIGNING_PRIVATE_KEY_PEM in every shared, staging, or production environment.
+    allow-ephemeral-signing-key: ${AUTH_ALLOW_EPHEMERAL_SIGNING_KEY:true}
+  admin-service:
+    base-url: ${ADMIN_SERVICE_URL:http://localhost:8082}

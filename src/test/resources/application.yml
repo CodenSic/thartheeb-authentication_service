@@ -1,0 +1,32 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:authentication;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+thartheeb:
+  auth:
+    issuer: https://auth.test
+    access-token-ttl: PT10M
+    refresh-token-ttl: P30D
+    reset-token-ttl: PT15M
+    mfa-challenge-ttl: PT5M
+    maximum-attempts: 5
+    lock-duration: PT15M
+    field-encryption-key-base64: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+    service-clients:
+      operations-service: test-operations-secret
+      vendor-service: test-vendor-secret
+    service-token-ttl: PT1M
+    outbox-publish-delay: PT1H
+    signing-private-key-pem: ""
+    signing-key-id: test-key
+    allow-ephemeral-signing-key: true
+  admin-service:
+    base-url: http://localhost:65535

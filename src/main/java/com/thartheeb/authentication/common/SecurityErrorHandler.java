@@ -1,0 +1,22 @@
+package com.thartheeb.authentication.common;
+
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.stereotype.Component;
+
+@Component
+public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDeniedHandler {
+    @Override public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException ex) throws IOException, ServletException { write(response, 401, "Unauthorized", "Authentication is required to access this resource."); }
+    @Override public void handle(HttpServletRequest request, HttpServletResponse response, AccessDeniedException ex) throws IOException, ServletException { write(response, 403, "Forbidden", "You do not have permission to access this resource."); }
+    private void write(HttpServletResponse response, int status, String error, String message) throws IOException {
+        response.setStatus(status); response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.getWriter().write("{\"status\":" + status + ",\"error\":\"" + error + "\",\"message\":\"" + message + "\"}");
+    }
+}

@@ -13,9 +13,11 @@ spring:
 thartheeb:
   auth:
     issuer: https://auth.test
-    access-token-ttl: PT10M
-    refresh-token-ttl: P30D
+    access-token-ttl: PT8H
+    refresh-token-ttl: PT8H
     reset-token-ttl: PT15M
+    vendor-activation-token-ttl: PT30M
+    vendor-login-page-url: https://vendors.thartheeb.test/login
     mfa-challenge-ttl: PT5M
     maximum-attempts: 5
     lock-duration: PT15M

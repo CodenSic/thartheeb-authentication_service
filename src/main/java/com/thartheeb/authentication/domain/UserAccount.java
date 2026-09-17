@@ -29,7 +29,7 @@ public class UserAccount {
     private AccountStatus status;
     @Column(name = "mfa_required", nullable = false)
     private boolean mfaRequired;
-    @Column(name = "mfa_secret_encrypted", nullable = false, length = 512)
+    @Column(name = "mfa_secret_encrypted", length = 512)
     private String mfaSecretEncrypted;
     @Column(name = "failed_attempts", nullable = false)
     private int failedAttempts;
@@ -48,13 +48,13 @@ public class UserAccount {
     protected UserAccount() {
     }
 
-    public UserAccount(String identifierNormalized, String passwordHash, String encryptedMfaSecret) {
+    public UserAccount(String identifierNormalized, String passwordHash) {
         this.id = UUID.randomUUID();
         this.identifierNormalized = identifierNormalized;
         this.passwordHash = passwordHash;
-        this.mfaSecretEncrypted = encryptedMfaSecret;
-        this.mfaRequired = true;
-        this.status = AccountStatus.ACTIVE;
+        this.mfaSecretEncrypted = null;
+        this.mfaRequired = false;
+        this.status = AccountStatus.PENDING_PASSWORD_SETUP;
     }
 
     public boolean isLocked(Instant now) {
@@ -83,6 +83,27 @@ public class UserAccount {
     public void changePassword(String encodedPassword) {
         passwordHash = encodedPassword;
         securityVersion++;
+    }
+
+    public void preparePasswordSetup() {
+        status = AccountStatus.PENDING_PASSWORD_SETUP;
+        mfaRequired = false;
+        mfaSecretEncrypted = null;
+        failedAttempts = 0;
+        lockedUntil = null;
+        securityVersion++;
+    }
+
+    public void activateWithPassword(String encodedPassword) {
+        passwordHash = encodedPassword;
+        status = AccountStatus.ACTIVE;
+        failedAttempts = 0;
+        lockedUntil = null;
+        securityVersion++;
+    }
+
+    public boolean isPendingPasswordSetup() {
+        return status == AccountStatus.PENDING_PASSWORD_SETUP;
     }
 
     @PrePersist

@@ -32,9 +32,12 @@ thartheeb:
   auth:
     # Local defaults: environment variables override every value in deployed environments.
     issuer: ${AUTH_ISSUER:http://localhost:8081}
-    access-token-ttl: PT10M
-    refresh-token-ttl: P30D
+    # User login sessions: access and rotated refresh tokens are each valid for eight hours.
+    access-token-ttl: PT8H
+    refresh-token-ttl: PT8H
     reset-token-ttl: PT15M
+    vendor-activation-token-ttl: ${VENDOR_ACTIVATION_TOKEN_TTL:PT30M}
+    vendor-login-page-url: ${VENDOR_LOGIN_PAGE_URL:http://localhost:3000/login}
     mfa-challenge-ttl: PT5M
     maximum-attempts: 5
     lock-duration: PT15M

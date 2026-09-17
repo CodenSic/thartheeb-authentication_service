@@ -46,7 +46,13 @@ public class TenantMembership {
     }
 
     public boolean mayAuthenticate() {
-        return status == MembershipStatus.ONBOARDING || status == MembershipStatus.ACTIVE;
+        return status == MembershipStatus.ACTIVE;
+    }
+
+    public boolean isOnboarding() { return status == MembershipStatus.ONBOARDING; }
+
+    public boolean isActiveFor(UUID expectedVendorId) {
+        return status == MembershipStatus.ACTIVE && expectedVendorId.equals(vendorId);
     }
 
     public UUID getId() { return id; }

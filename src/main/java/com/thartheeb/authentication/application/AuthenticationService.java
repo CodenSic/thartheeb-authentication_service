@@ -5,6 +5,7 @@ import static com.thartheeb.authentication.infrastructure.security.SecureTokens.
 import static com.thartheeb.authentication.infrastructure.security.SecureTokens.sha256;
 
 import com.thartheeb.authentication.application.port.out.PasswordResetDelivery;
+import com.thartheeb.authentication.application.port.out.VendorApprovalDelivery;
 import com.thartheeb.authentication.common.ApiException;
 import com.thartheeb.authentication.config.AuthProperties;
 import com.thartheeb.authentication.domain.*;
@@ -13,14 +14,15 @@ import com.thartheeb.authentication.infrastructure.messaging.AuthOutboxEvent;
 import com.thartheeb.authentication.infrastructure.security.SecretProtector;
 import com.thartheeb.authentication.infrastructure.security.TokenService;
 import com.thartheeb.authentication.infrastructure.security.TotpService;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +38,7 @@ public class AuthenticationService {
     private final AuthSessionRepository sessions;
     private final RefreshTokenRepository refreshTokens;
     private final PasswordResetTokenRepository resetTokens;
+    private final VendorActivationTokenRepository activationTokens;
     private final PasswordHistoryRepository passwordHistory;
     private final RevokedAccessTokenRepository revokedAccessTokens;
     private final AuthOutboxRepository outbox;
@@ -44,6 +47,8 @@ public class AuthenticationService {
     private final SecretProtector secrets;
     private final TokenService tokens;
     private final PasswordResetDelivery resetDelivery;
+    private final VendorApprovalDelivery approvalDelivery;
+    private final JwtDecoder jwtDecoder;
     private final AuthProperties properties;
     private final String dummyPasswordHash;
 
@@ -54,6 +59,7 @@ public class AuthenticationService {
         AuthSessionRepository sessions,
         RefreshTokenRepository refreshTokens,
         PasswordResetTokenRepository resetTokens,
+        VendorActivationTokenRepository activationTokens,
         PasswordHistoryRepository passwordHistory,
         RevokedAccessTokenRepository revokedAccessTokens,
         AuthOutboxRepository outbox,
@@ -62,6 +68,8 @@ public class AuthenticationService {
         SecretProtector secrets,
         TokenService tokens,
         PasswordResetDelivery resetDelivery,
+        VendorApprovalDelivery approvalDelivery,
+        JwtDecoder jwtDecoder,
         AuthProperties properties
     ) {
         this.users = users;
@@ -70,6 +78,7 @@ public class AuthenticationService {
         this.sessions = sessions;
         this.refreshTokens = refreshTokens;
         this.resetTokens = resetTokens;
+        this.activationTokens = activationTokens;
         this.passwordHistory = passwordHistory;
         this.revokedAccessTokens = revokedAccessTokens;
         this.outbox = outbox;
@@ -78,6 +87,8 @@ public class AuthenticationService {
         this.secrets = secrets;
         this.tokens = tokens;
         this.resetDelivery = resetDelivery;
+        this.approvalDelivery = approvalDelivery;
+        this.jwtDecoder = jwtDecoder;
         this.properties = properties;
         this.dummyPasswordHash = passwordEncoder.encode("Timing-Only-Password-Value-42!");
     }
@@ -89,27 +100,24 @@ public class AuthenticationService {
             throw new ApiException(HttpStatus.CONFLICT, "ACCOUNT_ALREADY_EXISTS",
                 "An account already exists for this identifier.");
         }
-        validatePassword(request.password(), identifier);
-        String secret = totp.generateSecret();
-        String encodedPassword = passwordEncoder.encode(request.password());
+        String encodedPlaceholder = passwordEncoder.encode(randomToken());
         UserAccount user;
         try {
-            user = users.saveAndFlush(new UserAccount(
-                identifier, encodedPassword, secrets.encrypt(secret)));
+            user = users.saveAndFlush(new UserAccount(identifier, encodedPlaceholder));
         } catch (DataIntegrityViolationException ex) {
             throw new ApiException(HttpStatus.CONFLICT, "ACCOUNT_ALREADY_EXISTS",
                 "An account already exists for this identifier.");
         }
-        memberships.save(new TenantMembership(user.getId()));
-        passwordHistory.save(new PasswordHistory(user.getId(), encodedPassword));
+        TenantMembership membership = memberships.save(new TenantMembership(user.getId()));
+        Instant now = Instant.now();
+        AuthSession session = sessions.save(new AuthSession(
+            user.getId(), null, 0, now.plus(properties.refreshTokenTtl())));
+        TokenResponse onboardingSession = issueTokenPair(
+            user, membership, session, UUID.randomUUID(), 0, now);
         event(user.getId(), "VendorOnboardingIdentityCreated",
             "{\"userId\":\"" + user.getId() + "\",\"role\":\"VENDOR_ONBOARDING_ADMIN\"}");
-        String issuer = URLEncoder.encode("Thartheeb", StandardCharsets.UTF_8);
-        String account = URLEncoder.encode(identifier, StandardCharsets.UTF_8);
-        String uri = "otpauth://totp/" + issuer + ":" + account + "?secret=" + secret
-            + "&issuer=" + issuer + "&digits=6&period=30";
         return new VendorRegistrationResponse(
-            user.getId(), "VENDOR_ONBOARDING_ADMIN", secret, uri);
+            user.getId(), "VENDOR_ONBOARDING_ADMIN", false, onboardingSession);
     }
 
     @Transactional(noRollbackFor = ApiException.class)
@@ -132,9 +140,17 @@ public class AuthenticationService {
             throw unauthorized("INVALID_CREDENTIALS", GENERIC_AUTH_MESSAGE);
         }
         user.authenticationSucceeded();
+        if (!user.isMfaRequired()) {
+            AuthSession session = sessions.save(new AuthSession(
+                user.getId(), membership.getVendorId(), 0,
+                now.plus(properties.refreshTokenTtl())));
+            TokenResponse pair = issueTokenPair(
+                user, membership, session, UUID.randomUUID(), 0, now);
+            return new LoginResponse(false, null, null, pair);
+        }
         MfaChallenge challenge = challenges.save(
             new MfaChallenge(user.getId(), now.plus(properties.mfaChallengeTtl())));
-        return new LoginResponse(true, challenge.getId(), challenge.getExpiresAt());
+        return new LoginResponse(true, challenge.getId(), challenge.getExpiresAt(), null);
     }
 
     @Transactional(noRollbackFor = ApiException.class)
@@ -162,7 +178,7 @@ public class AuthenticationService {
         challenge.consume(now);
         user.authenticationSucceeded();
         AuthSession session = sessions.save(new AuthSession(
-            user.getId(), membership.getVendorId(), now.plus(properties.refreshTokenTtl())));
+            user.getId(), membership.getVendorId(), 1, now.plus(properties.refreshTokenTtl())));
         return issueTokenPair(user, membership, session, UUID.randomUUID(), 0, now);
     }
 
@@ -186,7 +202,9 @@ public class AuthenticationService {
         UserAccount user = users.findById(session.getUserId())
             .orElseThrow(() -> unauthorized("ACCOUNT_UNAVAILABLE", GENERIC_AUTH_MESSAGE));
         TenantMembership membership = membership(user.getId());
-        if (user.isLocked(now) || !membership.mayAuthenticate()) {
+        boolean onboardingSession = user.isPendingPasswordSetup() && membership.isOnboarding();
+        if ((!onboardingSession && user.isLocked(now))
+            || (!onboardingSession && !membership.mayAuthenticate())) {
             revokeSession(session, now);
             throw unauthorized("ACCOUNT_UNAVAILABLE", GENERIC_AUTH_MESSAGE);
         }
@@ -198,6 +216,7 @@ public class AuthenticationService {
     @Transactional
     public GenericResponse requestPasswordReset(PasswordResetRequest request) {
         users.findByIdentifierNormalized(normalize(request.identifier())).ifPresent(user -> {
+            if (user.isPendingPasswordSetup()) return;
             Instant expiresAt = Instant.now().plus(properties.resetTokenTtl());
             String token = randomToken();
             resetTokens.save(new PasswordResetToken(user.getId(), sha256(token), expiresAt));
@@ -239,6 +258,42 @@ public class AuthenticationService {
         return new GenericResponse("Password reset completed. Sign in again.");
     }
 
+    @Transactional(readOnly = true)
+    public VendorActivationValidationResponse validateVendorActivation(String rawToken) {
+        ActivationContext activation = activation(rawToken, false);
+        return new VendorActivationValidationResponse(true, activation.record().getExpiresAt());
+    }
+
+    @Transactional
+    public VendorPasswordSetupResponse confirmVendorActivation(VendorPasswordSetupRequest request) {
+        if (!request.password().equals(request.confirmPassword())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "PASSWORD_CONFIRMATION_MISMATCH",
+                "Password and confirm password must match.");
+        }
+        ActivationContext activation = activation(request.token(), true);
+        UserAccount user = users.findById(activation.userId())
+            .orElseThrow(() -> unauthorized("VENDOR_ACTIVATION_INVALID",
+                "The Vendor activation link is invalid or expired."));
+        TenantMembership membership = membership(user.getId());
+        if (!user.isPendingPasswordSetup() || !membership.mayAuthenticate()
+            || !activation.vendorId().equals(membership.getVendorId())) {
+            throw unauthorized("VENDOR_ACTIVATION_INVALID",
+                "The Vendor activation link is invalid or expired.");
+        }
+        validatePassword(request.password(), user.getIdentifierNormalized());
+        String encoded = passwordEncoder.encode(request.password());
+        user.activateWithPassword(encoded);
+        passwordHistory.save(new PasswordHistory(user.getId(), encoded));
+        activation.record().consume(Instant.now());
+        revokeAllSessions(user.getId(), Instant.now());
+        event(user.getId(), "VendorPasswordEstablished",
+            "{\"userId\":\"" + user.getId() + "\",\"vendorId\":\""
+                + activation.vendorId() + "\"}");
+        return new VendorPasswordSetupResponse(
+            "Password created successfully. Sign in to continue.",
+            properties.vendorLoginPageUrl());
+    }
+
     @Transactional
     public void logout(UUID sessionId, String jti, Instant accessTokenExpiry) {
         Instant now = Instant.now();
@@ -255,13 +310,35 @@ public class AuthenticationService {
     }
 
     @Transactional
-    public void activateMembership(ActivateVendorMembershipRequest request) {
+    public void activateMembership(ApproveVendorMembershipRequest request) {
+        Instant now = Instant.now();
         TenantMembership membership = memberships.findByUserId(request.userId())
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "MEMBERSHIP_NOT_FOUND",
                 "Vendor membership was not found."));
+        UserAccount user = users.findById(request.userId())
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "ACCOUNT_NOT_FOUND",
+                "Vendor account was not found."));
+        if (!user.getIdentifierNormalized().equals(normalize(request.identifier()))) {
+            throw new ApiException(HttpStatus.CONFLICT, "VENDOR_EMAIL_MISMATCH",
+                "The approved application email does not match the onboarding account.");
+        }
+        if (membership.isActiveFor(request.vendorId())) {
+            return;
+        }
         membership.activate(request.vendorId());
+        user.preparePasswordSetup();
+        revokeAllSessions(user.getId(), now);
+        activationTokens.findByUserIdAndConsumedAtIsNull(user.getId())
+            .forEach(token -> token.consume(now));
+        TokenService.VendorActivationJwt activation =
+            tokens.issueVendorActivationToken(user, request.vendorId(), now);
+        activationTokens.save(new VendorActivationToken(
+            activation.tokenId(), user.getId(), request.vendorId(), activation.expiresAt()));
+        approvalDelivery.deliver(user.getIdentifierNormalized(), request.companyName(),
+            activation.value(), activation.expiresAt());
         event(request.userId(), "VendorMembershipActivated",
-            "{\"userId\":\"" + request.userId() + "\",\"vendorId\":\"" + request.vendorId() + "\"}");
+            "{\"userId\":\"" + request.userId() + "\",\"vendorId\":\"" + request.vendorId()
+                + "\",\"passwordSetupExpiresAt\":\"" + activation.expiresAt() + "\"}");
     }
 
     @Transactional
@@ -295,9 +372,42 @@ public class AuthenticationService {
         AuthSession session = sessions.findById(request.sessionId()).orElse(null);
         if (session == null || !session.active(Instant.now())) return new IntrospectionResponse(false);
         UserAccount user = users.findById(session.getUserId()).orElse(null);
-        return new IntrospectionResponse(user != null
-            && user.getSecurityVersion() == request.securityVersion()
-            && !user.isLocked(Instant.now()));
+        if (user == null || user.getSecurityVersion() != request.securityVersion()) {
+            return new IntrospectionResponse(false);
+        }
+        TenantMembership membership = memberships.findByUserId(user.getId()).orElse(null);
+        boolean onboarding = membership != null && membership.isOnboarding()
+            && user.isPendingPasswordSetup();
+        return new IntrospectionResponse(onboarding || !user.isLocked(Instant.now()));
+    }
+
+    private ActivationContext activation(String rawToken, boolean forUpdate) {
+        try {
+            Jwt jwt = jwtDecoder.decode(rawToken);
+            if (jwt.getIssuer() == null
+                || !properties.issuer().equals(jwt.getIssuer().toString())
+                || !"vendor_password_setup".equals(jwt.getClaimAsString("token_use"))
+                || jwt.getId() == null || jwt.getSubject() == null
+                || jwt.getClaimAsString("vendor_id") == null) {
+                throw new IllegalArgumentException("Unexpected activation token claims");
+            }
+            UUID userId = UUID.fromString(jwt.getSubject());
+            UUID vendorId = UUID.fromString(jwt.getClaimAsString("vendor_id"));
+            VendorActivationToken record = (forUpdate
+                ? activationTokens.findForUpdateByTokenId(jwt.getId())
+                : activationTokens.findByTokenId(jwt.getId()))
+                .orElseThrow(() -> new IllegalArgumentException("Activation token not found"));
+            if (!record.usable(Instant.now(), userId, vendorId)) {
+                throw new IllegalArgumentException("Activation token unavailable");
+            }
+            return new ActivationContext(record, userId, vendorId);
+        } catch (JwtException | IllegalArgumentException ex) {
+            throw unauthorized("VENDOR_ACTIVATION_INVALID",
+                "The Vendor activation link is invalid or expired.");
+        }
+    }
+
+    private record ActivationContext(VendorActivationToken record, UUID userId, UUID vendorId) {
     }
 
     private TokenResponse issueTokenPair(UserAccount user, TenantMembership membership,

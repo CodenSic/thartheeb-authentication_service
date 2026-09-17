@@ -31,6 +31,8 @@ class OpenApiCoverageTests {
         String publicSpec = getSpec("/v3/api-docs/public");
         assertThat(publicSpec)
                 .contains("/v1/auth/vendor-registration")
+                .contains("/v1/auth/vendor-activations/validate")
+                .contains("/v1/auth/vendor-activations/confirm")
                 .contains("/v1/auth/logout")
                 .contains("/.well-known/jwks.json")
                 .contains("#/components/schemas/ApiError")

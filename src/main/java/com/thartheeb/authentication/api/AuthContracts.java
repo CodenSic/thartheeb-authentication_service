@@ -13,13 +13,12 @@ public final class AuthContracts {
     }
 
     public record VendorRegistrationRequest(
-        @NotBlank @Email @Size(max = 254) String email,
-        @NotBlank @Size(min = 12, max = 128) String password
+        @NotBlank @Email @Size(max = 254) String email
     ) {
     }
 
     public record VendorRegistrationResponse(
-        UUID userId, String role, String mfaSecret, String mfaEnrollmentUri
+        UUID userId, String role, boolean mfaRequired, TokenResponse onboardingSession
     ) {
     }
 
@@ -29,7 +28,8 @@ public final class AuthContracts {
     ) {
     }
 
-    public record LoginResponse(boolean mfaRequired, UUID challengeId, Instant expiresAt) {
+    public record LoginResponse(boolean mfaRequired, UUID challengeId, Instant expiresAt,
+                                TokenResponse tokens) {
     }
 
     public record MfaVerifyRequest(
@@ -57,6 +57,27 @@ public final class AuthContracts {
     }
 
     public record GenericResponse(String message) {
+    }
+
+    public record VendorActivationValidationResponse(boolean valid, Instant expiresAt) {
+    }
+
+    public record VendorPasswordSetupRequest(
+        @NotBlank String token,
+        @NotBlank @Size(min = 12, max = 128) String password,
+        @NotBlank @Size(min = 12, max = 128) String confirmPassword
+    ) {
+    }
+
+    public record VendorPasswordSetupResponse(String message, String loginUrl) {
+    }
+
+    public record ApproveVendorMembershipRequest(
+        @NotNull UUID userId,
+        @NotNull UUID vendorId,
+        @NotBlank @Email String identifier,
+        @NotBlank @Size(max = 180) String companyName
+    ) {
     }
 
     public record ActivateVendorMembershipRequest(@NotNull UUID userId, @NotNull UUID vendorId) {

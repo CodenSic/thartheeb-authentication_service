@@ -50,7 +50,8 @@ public class SecurityConfig {
                     "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html",
                     "/v1/auth/vendor-registration", "/v1/auth/login", "/v1/auth/mfa/verify",
                     "/v1/auth/token/refresh", "/v1/auth/password-resets",
-                    "/v1/auth/password-resets/confirm", "/v1/auth/service-token").permitAll()
+                    "/v1/auth/password-resets/confirm", "/v1/auth/vendor-activations/validate",
+                    "/v1/auth/vendor-activations/confirm", "/v1/auth/service-token").permitAll()
                 .requestMatchers("/internal/**").hasAuthority("SCOPE_internal")
                 .anyRequest().authenticated())
             .exceptionHandling(exceptions -> exceptions

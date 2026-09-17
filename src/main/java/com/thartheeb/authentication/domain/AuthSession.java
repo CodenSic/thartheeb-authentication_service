@@ -29,11 +29,11 @@ public class AuthSession {
     protected AuthSession() {
     }
 
-    public AuthSession(UUID userId, UUID vendorId, Instant expiresAt) {
+    public AuthSession(UUID userId, UUID vendorId, int mfaLevel, Instant expiresAt) {
         this.id = UUID.randomUUID();
         this.userId = userId;
         this.vendorId = vendorId;
-        this.mfaLevel = 1;
+        this.mfaLevel = mfaLevel;
         this.expiresAt = expiresAt;
     }
 

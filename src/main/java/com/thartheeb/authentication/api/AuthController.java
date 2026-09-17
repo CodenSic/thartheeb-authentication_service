@@ -19,6 +19,8 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -26,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping
-@Tag(name = "Authentication", description = "Vendor identity, MFA, token, session and password recovery")
+@Tag(name = "Authentication", description = "Vendor identity, activation, token, session and password recovery")
 @ApiResponses({
     @ApiResponse(responseCode = "400", description = "Validation or password policy failure", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiError.class))),
     @ApiResponse(responseCode = "401", description = "Credentials, MFA, token or session rejected", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiError.class))),
@@ -45,21 +47,21 @@ public class AuthController {
     @PostMapping("/v1/auth/vendor-registration")
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(summary = "Register a Vendor onboarding identity",
-        description = "Creates the unique onboarding user, Argon2 password hash, encrypted TOTP seed and onboarding-only membership. Returns MFA enrollment material once.")
+        description = "Creates a password-pending onboarding user and returns an onboarding-only token session. The permanent password is established only after approval.")
     VendorRegistrationResponse register(@Valid @RequestBody VendorRegistrationRequest request) {
         return service.registerVendor(request);
     }
 
     @PostMapping("/v1/auth/login")
     @Operation(summary = "Start login",
-        description = "Validates primary credentials and returns a time-limited MFA challenge. Unknown accounts and wrong passwords use the same generic rejection.")
+        description = "Validates approved Vendor credentials and directly returns access/refresh tokens with mfaRequired=false. Accounts explicitly configured for MFA receive a challenge instead.")
     LoginResponse login(@Valid @RequestBody LoginRequest request) {
         return service.login(request);
     }
 
     @PostMapping("/v1/auth/mfa/verify")
     @Operation(summary = "Verify MFA and issue tokens",
-        description = "Consumes a six-digit TOTP challenge and returns a short-lived RSA JWT, rotated refresh token and session identifier.")
+        description = "Consumes a six-digit TOTP challenge and returns an eight-hour RSA JWT, rotated eight-hour refresh token and session identifier.")
     TokenResponse verifyMfa(@Valid @RequestBody MfaVerifyRequest request) {
         return service.verifyMfa(request);
     }
@@ -84,6 +86,21 @@ public class AuthController {
         description = "Consumes the reset token, enforces password policy/history and revokes all existing sessions.")
     GenericResponse confirmReset(@Valid @RequestBody PasswordResetConfirmRequest request) {
         return service.confirmPasswordReset(request);
+    }
+
+    @GetMapping("/v1/auth/vendor-activations/validate")
+    @Operation(summary = "Validate a Vendor password-setup link",
+        description = "Validates the signed, single-use, 30-minute setup JWT before the frontend displays the set-password form.")
+    VendorActivationValidationResponse validateVendorActivation(@RequestParam String token) {
+        return service.validateVendorActivation(token);
+    }
+
+    @PostMapping("/v1/auth/vendor-activations/confirm")
+    @Operation(summary = "Set the approved Vendor password",
+        description = "Confirms matching passwords, consumes the one-time setup JWT and enables normal password login without Vendor MFA.")
+    VendorPasswordSetupResponse confirmVendorActivation(
+        @Valid @RequestBody VendorPasswordSetupRequest request) {
+        return service.confirmVendorActivation(request);
     }
 
     @PostMapping("/v1/auth/logout")
@@ -112,7 +129,7 @@ public class AuthController {
     @Operation(summary = "Activate a Vendor membership", tags = "Internal authentication",
         description = "Private idempotent-style integration used after Vendor approval to attach the onboarding user to the active Vendor.",
         security = @SecurityRequirement(name = "bearerAuth"))
-    void activate(@Valid @RequestBody ActivateVendorMembershipRequest request) {
+    void activate(@Valid @RequestBody ApproveVendorMembershipRequest request) {
         service.activateMembership(request);
     }
 

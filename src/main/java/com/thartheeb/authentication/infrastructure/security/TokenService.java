@@ -56,6 +56,27 @@ public class TokenService {
         return encoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
     }
 
+    public VendorActivationJwt issueVendorActivationToken(UserAccount user, UUID vendorId,
+                                                           Instant now) {
+        Instant expiresAt = now.plus(properties.vendorActivationTokenTtl());
+        String jti = UUID.randomUUID().toString();
+        JwtClaimsSet claims = JwtClaimsSet.builder()
+            .issuer(properties.issuer())
+            .subject(user.getId().toString())
+            .issuedAt(now)
+            .expiresAt(expiresAt)
+            .id(jti)
+            .claim("token_use", "vendor_password_setup")
+            .claim("scope", "vendor_activation")
+            .claim("vendor_id", vendorId.toString())
+            .build();
+        String value = encoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
+        return new VendorActivationJwt(value, jti, expiresAt);
+    }
+
     public record AccessToken(String value, String jti, Instant expiresAt) {
+    }
+
+    public record VendorActivationJwt(String value, String tokenId, Instant expiresAt) {
     }
 }

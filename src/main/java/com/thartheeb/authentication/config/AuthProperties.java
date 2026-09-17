@@ -10,6 +10,8 @@ public record AuthProperties(
     Duration accessTokenTtl,
     Duration refreshTokenTtl,
     Duration resetTokenTtl,
+    Duration vendorActivationTokenTtl,
+    String vendorLoginPageUrl,
     Duration mfaChallengeTtl,
     int maximumAttempts,
     Duration lockDuration,

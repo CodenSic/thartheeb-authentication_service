@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration
 @OpenAPIDefinition(info = @Info(title = "Thartheeb Authentication API", version = "v1",
-    description = "Vendor identity, MFA, token, session, password-reset and internal membership APIs.",
+    description = "Vendor identity, approval activation, token, session, password-reset and internal membership APIs.",
     contact = @Contact(name = "Thartheeb Engineering"),
     license = @License(name = "Proprietary - Internal Use")))
 @SecurityScheme(name = "bearerAuth", type = SecuritySchemeType.HTTP, scheme = "bearer",

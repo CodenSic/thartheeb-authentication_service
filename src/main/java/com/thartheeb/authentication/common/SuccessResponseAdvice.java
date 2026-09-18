@@ -55,7 +55,7 @@ public class SuccessResponseAdvice implements ResponseBodyAdvice<Object> {
 
     private static boolean excluded(String path) {
         return path.startsWith("/v3/api-docs") || path.startsWith("/swagger-ui")
-            || path.startsWith("/actuator");
+            || path.startsWith("/actuator") || path.equals("/.well-known/jwks.json");
     }
 
     public record SuccessResponse<T>(int status, T data) {
